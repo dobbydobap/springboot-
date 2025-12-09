@@ -13,16 +13,28 @@ import org.springframework.stereotype.Service;
 
 import java.util.Date;
 import java.util.List;
+import java.util.ArrayList;
+import java.time.LocalDate;
+import java.time.ZoneId;
+
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.PageRequest;
 
 @Service
 public class RideService {
 
     private final RideRepository rideRepository;
     private final UserRepository userRepository;
+    private final MongoTemplate mongoTemplate;
 
-    public RideService(RideRepository rideRepository, UserRepository userRepository) {
+    public RideService(RideRepository rideRepository, UserRepository userRepository, MongoTemplate mongoTemplate) {
         this.rideRepository = rideRepository;
         this.userRepository = userRepository;
+        this.mongoTemplate = mongoTemplate;
     }
 
     // 🚕 Request a ride (Passenger)
@@ -110,5 +122,100 @@ public class RideService {
                 .orElseThrow(() -> new NotFoundException("Driver not found"));
 
         return rideRepository.findByDriverId(driver.getId());
+    }
+
+    // 1. Search rides by pickup or drop location
+    public List<Ride> searchRides(String text) {
+        Query query = new Query();
+        query.addCriteria(new Criteria().orOperator(
+                Criteria.where("pickupLocation").regex(text, "i"),
+                Criteria.where("dropLocation").regex(text, "i")));
+        return mongoTemplate.find(query, Ride.class);
+    }
+
+    // 2. Filter rides by distance range
+    public List<Ride> filterByDistance(Double min, Double max) {
+        Query query = new Query();
+        query.addCriteria(Criteria.where("distanceKm").gte(min).lte(max));
+        return mongoTemplate.find(query, Ride.class);
+    }
+
+    // 3. Filter rides by date range
+    public List<Ride> filterByDateRange(LocalDate start, LocalDate end) {
+        Date startDate = Date.from(start.atStartOfDay(ZoneId.systemDefault()).toInstant());
+        Date endDate = Date.from(end.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant());
+
+        Query query = new Query();
+        query.addCriteria(Criteria.where("createdAt").gte(startDate).lt(endDate));
+        return mongoTemplate.find(query, Ride.class);
+    }
+
+    // 4. Sort rides by fare
+    public List<Ride> sortByFare(String order) {
+        Query query = new Query();
+        query.with(Sort.by("asc".equalsIgnoreCase(order) ? Sort.Direction.ASC : Sort.Direction.DESC, "fare"));
+        return mongoTemplate.find(query, Ride.class);
+    }
+
+    // 5. Get rides for user (Already implemented as getUserRides, but adding by ID
+    // version)
+    public List<Ride> getRidesByUserId(String userId) {
+        return rideRepository.findByUserId(userId);
+    }
+
+    // 6. Get rides for user by status
+    public List<Ride> getRidesByUserAndStatus(String userId, RideStatus status) {
+        Query query = new Query();
+        query.addCriteria(Criteria.where("userId").is(userId).and("status").is(status));
+        return mongoTemplate.find(query, Ride.class);
+    }
+
+    // 7. Get driver's active rides
+    public List<Ride> getDriverActiveRides(String driverId) {
+        Query query = new Query();
+        query.addCriteria(Criteria.where("driverId").is(driverId).and("status").is(RideStatus.ACCEPTED));
+        return mongoTemplate.find(query, Ride.class);
+    }
+
+    // 8. Filter rides by status + keyword
+    public List<Ride> filterByStatusAndKeyword(RideStatus status, String text) {
+        Query query = new Query();
+        Criteria statusCriteria = Criteria.where("status").is(status);
+        Criteria textCriteria = new Criteria().orOperator(
+                Criteria.where("pickupLocation").regex(text, "i"),
+                Criteria.where("dropLocation").regex(text, "i"));
+        query.addCriteria(new Criteria().andOperator(statusCriteria, textCriteria));
+        return mongoTemplate.find(query, Ride.class);
+    }
+
+    // 9. Advanced search
+    public List<Ride> advancedSearch(String search, RideStatus status, String sort, String order, int page, int size) {
+        Query query = new Query();
+
+        List<Criteria> criteriaList = new ArrayList<>();
+        if (search != null && !search.isEmpty()) {
+            criteriaList.add(new Criteria().orOperator(
+                    Criteria.where("pickupLocation").regex(search, "i"),
+                    Criteria.where("dropLocation").regex(search, "i")));
+        }
+        if (status != null) {
+            criteriaList.add(Criteria.where("status").is(status));
+        }
+
+        if (!criteriaList.isEmpty()) {
+            query.addCriteria(new Criteria().andOperator(criteriaList.toArray(new Criteria[0])));
+        }
+
+        if (sort != null && !sort.isEmpty()) {
+            query.with(Sort.by("asc".equalsIgnoreCase(order) ? Sort.Direction.ASC : Sort.Direction.DESC, sort));
+        }
+
+        query.with(PageRequest.of(page, size));
+        return mongoTemplate.find(query, Ride.class);
+    }
+
+    // 14. Rides by specific date
+    public List<Ride> getRidesByDate(LocalDate date) {
+        return filterByDateRange(date, date);
     }
 }

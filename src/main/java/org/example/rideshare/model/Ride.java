@@ -30,6 +30,9 @@ public class Ride {
     @NotNull(message = "Ride status is required")
     private RideStatus status;
 
+    private Double fare;
+    private Double distanceKm;
+
     @CreatedDate
     private Date createdAt = new Date();
 
@@ -100,5 +103,21 @@ public class Ride {
 
     public void setCreatedAt(Date createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public Double getFare() {
+        return fare;
+    }
+
+    public void setFare(Double fare) {
+        this.fare = fare;
+    }
+
+    public Double getDistanceKm() {
+        return distanceKm;
+    }
+
+    public void setDistanceKm(Double distanceKm) {
+        this.distanceKm = distanceKm;
     }
 }
